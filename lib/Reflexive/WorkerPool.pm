@@ -72,3 +72,36 @@ sub _build_workers {
 }
 
 1;
+
+__END__
+
+=head1 SYNOPSIS
+
+{
+	package MyJob;
+	use Moose;
+	extends 'Reflex::Base';
+	with 'Reflex::Role::Collectible';
+	with 'Reflexive::WorkerPool::Role::Job';
+	
+	sub work {
+		my $self = shift;
+	
+		# doing a unit of work!
+	}
+}
+
+
+use Reflexive::WorkerPool;
+
+my $worker_pool = Reflexive::WorkerPool->new();
+
+for my $i (0..10) {
+	try {
+		$worker_pool->enqueue_job(MyJob->new);
+	} catch {
+		warn "Oh noes! bad stuff happened: $_\n";
+	};
+}
+
+$worker_pool->run_all();
