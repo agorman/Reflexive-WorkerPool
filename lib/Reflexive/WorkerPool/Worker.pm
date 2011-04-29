@@ -19,7 +19,13 @@ has max_jobs => (
 sub num_jobs {
 	my $self = shift;
 
-	return scalar keys %{$self->jobs->objects};
+	return scalar keys %{$self->jobs->_objects};
+}
+
+sub available_job_slots {
+	my $self = shift;
+
+	return $self->max_jobs - $self->num_jobs;
 }
 
 sub add_job {

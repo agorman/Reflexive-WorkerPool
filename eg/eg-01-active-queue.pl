@@ -15,47 +15,54 @@ use lib qw(../lib);
 	with 'Reflex::Role::Collectible';
 	with 'Reflexive::WorkerPool::Role::Job';
 
-	has id => (
-		is         => 'ro',
-		isa        => 'Int',
-		lazy_build => 1,
-	);
-	
-	sub _build_id {
-		srand time;
-		return int(rand 1000);
-	}
-
 	sub work {
 		my $self = shift;
 
+		sleep 10;
 		# doing a unit of work!
 	}
 }
 
+{
+	package HasWorkerPool;
+	use Moose;
+	extends 'Reflex::Base';
+	use Reflexive::WorkerPool;
+	use Reflex::Trait::Observed;
+	use Reflex::Callbacks qw(cb_method);
 
-use Reflexive::WorkerPool;
+	observes pool => (
+		is    => 'rw',
+		isa   => 'Reflexive::WorkerPool',
+		setup => {
+			max_workers         => 5,
+			max_jobs_per_worker => 5,
+			poll_interval       => 1,
+		},
+		handles => {
+			enqueue => 'enqueue_job',
+		}
+	);
 
-my $worker_pool = Reflexive::WorkerPool->new(
-	max_workers     => 5,
-	poll_interval   => 1,
-	poll_action     => \&fetch_jobs,
-	on_job_started  => sub {
-		my ( $self, $job ) = @_;
+	sub on_pool_ready_to_work {
+		my $self = shift;
 
-		printf "Job: %s, started!\n", $job->id;
-	},
-	on_job_stopped => sub {
-		my ( $self, $job ) = @_;
-
-		printf "Job: %s, stopped!\n", $job->id;
+		for (1..$self->pool->available_job_slots) {
+			$self->enqueue(MyJob->new)
+		}
 	}
-);
 
-$worker_pool->run_all();
+	sub on_pool_job_started {
+		my ( $self, $job ) = @_;
 
+		printf "Job: %s, started!\n", $job->get_id;
+	}
 
-# Returns a list of jobs to run
-sub fetch_jobs {
-	[ MyJob->new, MyJob->new ];
+	sub on_pool_job_stopped {
+		my ( $self, $job ) = @_;
+
+		printf "Job: %s, stopped!\n", $job->get_id;
+	}
 }
+
+HasWorkerPool->new->run_all();

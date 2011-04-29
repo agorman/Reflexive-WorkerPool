@@ -5,6 +5,7 @@ extends 'Reflex::Base';
 use Reflex::Callbacks qw(cb_method);
 use Reflexive::WorkerPool::Worker;
 use Reflex::Interval;
+use Scalar::Util qw(reftype);
 
 has workers => (
 	is         => 'ro',
@@ -12,7 +13,7 @@ has workers => (
 	lazy_build => 1,
 	traits     => ['Array'],
 	handles    => {
-		
+		all_workers => 'elements',
 	},
 );
 
@@ -22,6 +23,11 @@ has max_workers => (
 	default => 5,
 );
 
+has max_jobs_per_worker => (
+	is      => 'ro',
+	isa     => 'Int',
+	default => 5,
+);
 
 has poll_interval => (
 	is      => 'ro',
@@ -31,64 +37,75 @@ has poll_interval => (
 
 has poll_action => (
 	is  => 'ro',
-	isa => 'CodeRef',
+	isa => 'Reflex::Callback',
 );
 
 has active_queue => (
-	is     => 'ro',
-	isa    => 'Reflex::Interval',
-	writer => '_set_active_queue',
-);
-
-has on_job_started => (
-	is  => 'ro',
-	isa => 'CodeRef',
-);
-
-has on_job_stopped => (
-	is  => 'ro',
-	isa => 'CodeRef',
+	is      => 'ro',
+	isa     => 'Reflex::Interval',
+	writer  => '_set_active_queue',
+	clearer => '_clear_active_queue',
 );
 
 sub BUILD {
 	my $self = shift;
 
-	if ($self->poll_action) {
-		$self->_set_active_queue(
-			Reflex::Interval->new(
-				interval => $self->poll_interval,
-				on_tick  => cb_method($self, 'on_active_queue_tick'),
-			)
-		);
+	$self->_set_active_queue(
+		Reflex::Interval->new(
+			interval => $self->poll_interval,
+			on_tick  => cb_method($self, 'on_active_queue_tick'),
+		)
+	);
+}
+
+sub available_job_slots {
+	my $self = shift;
+
+	my $available = 0;
+	foreach my $worker ( $self->all_workers ) {
+		$available += $worker->available_job_slots();
 	}
+
+	return $available;
 }
 
 sub on_active_queue_tick {
 	my $self = shift;
 
-	my $jobs = $self->poll_action->();
-	$self->enqueue_jobs($jobs);
-}
+	return unless $self->available_job_slots();
 
-sub enqueue_jobs {
-	my ( $self, $jobs ) = @_;
-
-	foreach my $job ( @$jobs ) {
-		$self->enqueue_job($job);
-	}
+	$self->emit(event => 'ready_to_work');
 }
 
 sub enqueue_job {
 	my ( $self, $job ) = @_;
 
-	foreach my $worker ( @{$self->workers} ) {
-		next if ($worker->max_jobs <= $worker->num_jobs);
+	Carp::croak "poll_action must return a job class"
+		unless eval { $job->can('can') };
 
+	Carp::croak "jobs must consume Reflexive::WorkerPool::Role::Job"
+		unless $job->does('Reflexive::WorkerPool::Role::Job');
+
+	if (my $worker = $self->get_next_available_worker) {
 		$self->_watch($job);
-		return $worker->add_job($job);
+		$worker->add_job($job);
+	}
+}
+
+sub get_next_available_worker {
+	my $self = shift;
+
+	foreach my $worker ( @{$self->workers} ) {
+		return $worker if $worker->available_job_slots();
 	}
 
-	Carp::croak "No available workers";
+	return;
+}
+
+sub shut_down {
+	my $self = shift;
+
+	$self->_clear_active_queue();
 }
 
 sub _watch {
@@ -104,14 +121,14 @@ sub _watch {
 sub _on_job_started {
 	my ( $self, $job ) = @_;
 
-	$self->on_job_started->($self, $job);
+	$self->emit(event => 'job_started', args => $job);
 }
 
 sub _on_job_stopped {
 	my ( $self, $job ) = @_;
 
-	$self->on_job_stopped->($self, $job);
 	$self->ignore($job);
+	$self->emit(event => 'job_stopped', args => $job);
 }
 
 sub _build_workers {
@@ -119,7 +136,12 @@ sub _build_workers {
 
 	my @workers;
 	for (1..$self->max_workers) {
-		push @workers, Reflexive::WorkerPool::Worker->new;
+		push(
+			@workers,
+			Reflexive::WorkerPool::Worker->new(
+				max_jobs => $self->max_jobs_per_worker,
+			)
+		);
 	}
 
 	return \@workers;
