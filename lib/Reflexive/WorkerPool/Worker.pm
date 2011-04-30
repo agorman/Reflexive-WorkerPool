@@ -46,3 +46,22 @@ sub add_job {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Reflexive::Worker - Manages a collection of jobs
+
+=head1 DESCRIPTION
+
+See L<Reflexive::WorkerPool> for details.
+
+=head1 AUTHOR
+
+Andy Gorman, agorman@cpan.org
+
+=head1 COPYRIGHT AND LICENSE
+
+This is free software; you can redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.

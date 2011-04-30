@@ -13,16 +13,20 @@ use lib qw(../lib);
 	with 'Reflex::Role::Collectible';
 	with 'Reflexive::WorkerPool::Role::Job';
 
+	# Changing this attribute inside work will also update the MyJob object in
+	# this process provided:
+	# 1) The attribute is rw
+	# 2) The attribute uses the Reflex::Trait::EmitsOnChange trait
 	emits attr => (
 		is  => 'rw',
 		isa => 'Int',
 	);
 
+	# This method will be executed within it's own process
 	sub work {
 		my $self = shift;
 
-		$self->attr(123456789);
-		$self->attr(2);
+		$self->attr(42);
 
 		sleep 5;
 	}
@@ -34,9 +38,6 @@ use lib qw(../lib);
 	extends 'Reflex::Base';
 	use Reflexive::WorkerPool;
 	use Reflex::Trait::Observed;
-	use Reflex::Callbacks qw(cb_method);
-	use Scalar::Util qw(blessed);
-	use Data::Dumper;
 
 	observes pool => (
 		is    => 'rw',
@@ -51,6 +52,8 @@ use lib qw(../lib);
 		}
 	);
 
+	# The ready_to_work event files when the pool_interval is reached and the
+	# workerpool isn't full.
 	sub on_pool_ready_to_work {
 		my $self = shift;
 
@@ -69,23 +72,16 @@ use lib qw(../lib);
 		my ( $self, $job ) = @_;
 
 		printf "Job: %s, stopped!\n", $job->get_id;
-	}
 
-	sub on_pool_job_errored {
-		my ( $self, $job ) = @_;
-
-		printf "Job: %s, errored!\n", $job->get_id;
+		print $job->attr;	# prints 42
 	}
 
 	sub on_pool_job_updated {
-		my ( $self, $state ) = @_;
+		my ( $self, $job ) = @_;
 
-		# This sessions job object
-		my $job = delete($state->{_sender})->get_first_emitter;
-		printf "Job: %s, updated with values:\n", $job->get_id;
+		printf "Job: %s, stopped!\n", $job->get_id;
 
-		# Other sessions emitted attribute change
-		print Dumper $state;
+		print $job->attr;	# prints 42
 	}
 }
 
