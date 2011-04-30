@@ -35,11 +35,6 @@ has poll_interval => (
 	default => 60,
 );
 
-has poll_action => (
-	is  => 'ro',
-	isa => 'Reflex::Callback',
-);
-
 has active_queue => (
 	is      => 'ro',
 	isa     => 'Reflex::Interval',
@@ -80,7 +75,10 @@ sub on_active_queue_tick {
 sub enqueue_job {
 	my ( $self, $job ) = @_;
 
-	Carp::croak "poll_action must return a job class"
+	Carp::croak "no available job slots"
+		unless $self->available_job_slots();
+
+	Carp::croak "enqueue_job expects a job class"
 		unless eval { $job->can('can') };
 
 	Carp::croak "jobs must consume Reflexive::WorkerPool::Role::Job"
@@ -115,6 +113,8 @@ sub _watch {
 		$job,
 		job_started => cb_method($self, '_on_job_started'),
 		job_stopped => cb_method($self, '_on_job_stopped'),
+		job_errored => cb_method($self, '_on_job_errored'),
+		job_updated => cb_method($self, '_on_job_updated'),
 	);
 }
 
@@ -129,6 +129,18 @@ sub _on_job_stopped {
 
 	$self->ignore($job);
 	$self->emit(event => 'job_stopped', args => $job);
+}
+
+sub _on_job_errored {
+	my ( $self, $job ) = @_;
+
+	$self->emit(event => 'job_errored', args => $job);
+}
+
+sub _on_job_updated {
+	my ( $self, $state ) = @_;
+
+	$self->emit(event => 'job_updated', args => $state);
 }
 
 sub _build_workers {
